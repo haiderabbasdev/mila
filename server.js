@@ -1,120 +1,110 @@
 const express = require('express');
-const http = require('http');
-const socketIO = require('socket.io');
-const cors = require('cors');
-const path = require('path');
-
 const app = express();
-const server = http.createServer(app);
-const io = socketIO(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
+const http = require('http').createServer(app);
+const io = require('socket.io')(http);
+const path = require('path');
+const os = require('os');
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('public'));
 
-// Store active users and their preferences
-const activeUsers = new Map();
+// Queue for waiting users
+const waitingUsers = {
+    text: [],
+    video: []
+};
 
-// Socket.IO connection handling
+// Active rooms
+const activeRooms = new Map();
+
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    // Handle user preferences
-    socket.on('setPreferences', (preferences) => {
-        activeUsers.set(socket.id, {
-            preferences,
-            available: true
-        });
-        findMatch(socket);
+    socket.on('find-partner', ({ isVideoChat }) => {
+        const queueType = isVideoChat ? 'video' : 'text';
+        const queue = waitingUsers[queueType];
+
+        // Remove user from any existing room
+        leaveCurrentRoom(socket);
+
+        if (queue.length > 0) {
+            // Match with waiting user
+            const partner = queue.shift();
+            const roomId = `room_${partner.id}_${socket.id}`;
+            
+            // Create new room
+            activeRooms.set(roomId, { users: [partner.id, socket.id] });
+            
+            // Join both users to the room
+            socket.join(roomId);
+            partner.join(roomId);
+            
+            // Notify users
+            partner.emit('room-created', { roomId });
+            socket.emit('room-joined', { roomId });
+        } else {
+            // Add to waiting queue
+            waitingUsers[queueType].push(socket);
+        }
     });
 
-    // Handle disconnection
+    socket.on('leave-room', (roomId) => {
+        leaveCurrentRoom(socket);
+    });
+
+    socket.on('offer', ({ roomId, offer }) => {
+        socket.to(roomId).emit('offer-received', { offer });
+    });
+
+    socket.on('answer', ({ roomId, answer }) => {
+        socket.to(roomId).emit('answer-received', { answer });
+    });
+
+    socket.on('ice-candidate', ({ roomId, candidate }) => {
+        socket.to(roomId).emit('ice-candidate-received', { candidate });
+    });
+
+    socket.on('send-message', ({ roomId, message }) => {
+        socket.to(roomId).emit('message-received', { message });
+    });
+
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
-        activeUsers.delete(socket.id);
-    });
-
-    // Handle WebRTC signaling
-    socket.on('offer', (data) => {
-        io.to(data.target).emit('offer', {
-            offer: data.offer,
-            source: socket.id
-        });
-    });
-
-    socket.on('answer', (data) => {
-        io.to(data.target).emit('answer', {
-            answer: data.answer,
-            source: socket.id
-        });
-    });
-
-    socket.on('ice-candidate', (data) => {
-        io.to(data.target).emit('ice-candidate', {
-            candidate: data.candidate,
-            source: socket.id
-        });
-    });
-
-    // Handle chat messages
-    socket.on('chat-message', (data) => {
-        io.to(data.target).emit('chat-message', {
-            message: data.message,
-            source: socket.id
-        });
+        leaveCurrentRoom(socket);
+        
+        // Remove from waiting queues
+        waitingUsers.text = waitingUsers.text.filter(user => user.id !== socket.id);
+        waitingUsers.video = waitingUsers.video.filter(user => user.id !== socket.id);
     });
 });
 
-// Function to find a matching user
-function findMatch(socket) {
-    const currentUser = activeUsers.get(socket.id);
-    if (!currentUser || !currentUser.available) return;
-
-    for (const [userId, user] of activeUsers) {
-        if (userId !== socket.id && user.available) {
-            // Check if preferences match
-            if (preferencesMatch(currentUser.preferences, user.preferences)) {
-                // Mark both users as unavailable
-                currentUser.available = false;
-                user.available = false;
-
-                // Notify both users of the match
-                socket.emit('matched', userId);
-                io.to(userId).emit('matched', socket.id);
-                break;
-            }
+function leaveCurrentRoom(socket) {
+    // Find and leave current room
+    for (const [roomId, room] of activeRooms.entries()) {
+        if (room.users.includes(socket.id)) {
+            socket.to(roomId).emit('partner-left');
+            socket.leave(roomId);
+            activeRooms.delete(roomId);
+            break;
         }
     }
 }
 
-// Function to check if preferences match
-function preferencesMatch(pref1, pref2) {
-    // Implement your matching logic here
-    return true; // For now, match everyone
+// Get local network IP
+const networkInterfaces = os.networkInterfaces();
+let localIP = 'localhost';
+for (const interfaceName in networkInterfaces) {
+    const interface = networkInterfaces[interfaceName];
+    for (const entry of interface) {
+        if (entry.family === 'IPv4' && !entry.internal) {
+            localIP = entry.address;
+            break;
+        }
+    }
 }
 
 const PORT = process.env.PORT || 3000;
-const os = require('os');
-
-// Get local IP address
-const networkInterfaces = os.networkInterfaces();
-let localIP = 'localhost';
-Object.keys(networkInterfaces).forEach((interfaceName) => {
-    networkInterfaces[interfaceName].forEach((interface) => {
-        if (interface.family === 'IPv4' && !interface.internal) {
-            localIP = interface.address;
-        }
-    });
-});
-
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on:`);
-    console.log(`- Local: http://localhost:${PORT}`);
+http.listen(PORT, () => {
+    console.log(`Server running at:`);
+    console.log(`- Local:   http://localhost:${PORT}`);
     console.log(`- Network: http://${localIP}:${PORT}`);
 });

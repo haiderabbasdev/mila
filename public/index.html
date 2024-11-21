@@ -3,53 +3,58 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ΜΙΛΑ - Random Chat</title>
+    <title>ΜΙΛΑ - Connect Instantly</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
-        <div class="preferences-modal" id="preferencesModal">
-            <h1 class="site-title">ΜΙΛΑ</h1>
-            <p class="site-subtitle">Connect with the world</p>
-            <h2>Choose Your Preferences</h2>
-            <form id="preferencesForm">
-                <div class="form-group">
-                    <label for="gender">Your Gender:</label>
-                    <select id="gender" required>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                        <option value="other">Other</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="interestedIn">Interested In:</label>
-                    <select id="interestedIn" required>
-                        <option value="all">Everyone</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                    </select>
-                </div>
-                <button type="submit">Start Chatting</button>
-            </form>
+        <div class="welcome-screen" id="welcomeScreen">
+            <div class="logo-container">
+                <h1 class="site-title">ΜΙΛΑ</h1>
+                <p class="site-subtitle">Connect Instantly</p>
+            </div>
+            <div class="choice-buttons">
+                <button class="choice-btn" id="textChatBtn">
+                    <i class="fas fa-comments"></i>
+                    Text Chat
+                </button>
+                <button class="choice-btn" id="videoChatBtn">
+                    <i class="fas fa-video"></i>
+                    Video Chat
+                </button>
+            </div>
         </div>
 
         <div class="chat-container" id="chatContainer" style="display: none;">
-            <div class="video-container">
+            <div class="chat-header">
+                <h2>ΜΙΛΑ</h2>
+                <div class="controls">
+                    <button class="control-btn" id="toggleVideo" title="Toggle Video">
+                        <i class="fas fa-video"></i>
+                    </button>
+                    <button class="control-btn" id="toggleAudio" title="Toggle Audio">
+                        <i class="fas fa-microphone"></i>
+                    </button>
+                    <button class="control-btn" id="nextBtn" title="Next Person">
+                        <i class="fas fa-forward"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="video-container" id="videoContainer">
                 <video id="localVideo" autoplay muted></video>
                 <video id="remoteVideo" autoplay></video>
             </div>
-            <div class="chat-box">
+
+            <div class="chat-box" id="chatBox">
                 <div class="messages" id="messages"></div>
                 <div class="input-area">
                     <input type="text" id="messageInput" placeholder="Type a message...">
-                    <button id="sendMessage">Send</button>
+                    <button id="sendMessage">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
                 </div>
-            </div>
-            <div class="controls">
-                <button id="nextButton">Next</button>
-                <button id="toggleVideo">Toggle Video</button>
-                <button id="toggleAudio">Toggle Audio</button>
-                <button id="reportUser">Report User</button>
             </div>
         </div>
     </div>

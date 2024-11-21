@@ -1,6 +1,6 @@
-# Random Video Chat Platform
+# ΜΙΛΑ (Mila)
 
-A WebRTC-based random video chat platform with text messaging capabilities.
+A modern video chat platform that connects people around the world. The name "ΜΙΛΑ" means "speak" in Greek, representing our mission to break down language barriers and connect people through face-to-face communication.
 
 ## Features
 

@@ -9,6 +9,22 @@ body {
     background-color: #f0f2f5;
 }
 
+.site-title {
+    font-size: 3.5rem;
+    text-align: center;
+    color: #0084ff;
+    margin-bottom: 10px;
+    font-weight: bold;
+    letter-spacing: 2px;
+}
+
+.site-subtitle {
+    text-align: center;
+    color: #666;
+    margin-bottom: 30px;
+    font-size: 1.1rem;
+}
+
 .container {
     max-width: 1200px;
     margin: 0 auto;

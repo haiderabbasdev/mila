@@ -1,7 +1,7 @@
 {
-  "name": "random-chat",
+  "name": "mila",
   "version": "1.0.0",
-  "description": "A random video and text chat platform",
+  "description": "ΜΙΛΑ - A random video and text chat platform",
   "main": "server.js",
   "engines": {
     "node": ">=14.0.0"

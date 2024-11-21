@@ -6,6 +6,7 @@
     <title>ΜΙΛΑ - Connect Instantly</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/emoji-mart@latest/css/emoji-mart.css">
 </head>
 <body>
     <div class="container">
@@ -27,6 +28,11 @@
         </div>
 
         <div class="chat-container" id="chatContainer" style="display: none;">
+            <div class="connection-status" id="connectionStatus">
+                <i class="fas fa-circle"></i>
+                <span>Connecting...</span>
+            </div>
+            
             <div class="chat-header">
                 <h2>ΜΙΛΑ</h2>
                 <div class="controls">
@@ -50,6 +56,16 @@
             <div class="chat-box" id="chatBox">
                 <div class="messages" id="messages"></div>
                 <div class="input-area">
+                    <button class="media-btn" id="emojiBtn" title="Add Emoji">
+                        <i class="far fa-smile"></i>
+                    </button>
+                    <button class="media-btn" id="gifBtn" title="Send GIF">
+                        <i class="fas fa-images"></i>
+                    </button>
+                    <label class="media-btn" for="imageUpload" title="Send Image">
+                        <i class="fas fa-camera"></i>
+                    </label>
+                    <input type="file" id="imageUpload" accept="image/*" style="display: none;">
                     <input type="text" id="messageInput" placeholder="Type a message...">
                     <button id="sendMessage">
                         <i class="fas fa-paper-plane"></i>
@@ -57,8 +73,23 @@
                 </div>
             </div>
         </div>
+
+        <!-- Emoji Picker Container -->
+        <div class="emoji-picker" id="emojiPicker" style="display: none;">
+            <div id="emojiContainer"></div>
+        </div>
+
+        <!-- GIF Picker Container -->
+        <div class="gif-picker" id="gifPicker" style="display: none;">
+            <div class="gif-search">
+                <input type="text" id="gifSearchInput" placeholder="Search GIFs...">
+            </div>
+            <div class="gif-results" id="gifResults"></div>
+        </div>
     </div>
+
     <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

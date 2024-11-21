@@ -14,6 +14,14 @@ const messageInput = document.getElementById('messageInput');
 const sendMessageBtn = document.getElementById('sendMessage');
 const messagesDiv = document.getElementById('messages');
 const videoContainer = document.getElementById('videoContainer');
+const connectionStatus = document.getElementById('connectionStatus');
+const emojiBtn = document.getElementById('emojiBtn');
+const emojiPicker = document.getElementById('emojiPicker');
+const gifBtn = document.getElementById('gifBtn');
+const gifPicker = document.getElementById('gifPicker');
+const gifSearchInput = document.getElementById('gifSearchInput');
+const gifResults = document.getElementById('gifResults');
+const imageUpload = document.getElementById('imageUpload');
 
 // State variables
 let isVideoChat = false;
@@ -22,6 +30,7 @@ let peerConnection = null;
 let currentRoomId = null;
 let isVideoEnabled = true;
 let isAudioEnabled = true;
+let picker = null;
 
 // WebRTC configuration
 const configuration = {
@@ -46,6 +55,44 @@ function setupEventListeners() {
     sendMessageBtn.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
+    });
+    emojiBtn.addEventListener('click', () => {
+        if (!picker) {
+            picker = new EmojiMart.Picker({
+                onEmojiSelect: (emoji) => {
+                    messageInput.value += emoji.native;
+                    emojiPicker.style.display = 'none';
+                },
+                theme: 'dark',
+                set: 'twitter'
+            });
+            emojiPicker.appendChild(picker);
+        }
+        emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'block' : 'none';
+    });
+    gifBtn.addEventListener('click', () => {
+        gifPicker.style.display = gifPicker.style.display === 'none' ? 'block' : 'none';
+        if (gifPicker.style.display === 'block') {
+            searchGifs('');
+        }
+    });
+    gifSearchInput.addEventListener('input', debounce((e) => {
+        searchGifs(e.target.value);
+    }, 500));
+    imageUpload.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                alert('Image size must be less than 5MB');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                sendMessage('image', e.target.result);
+            };
+            reader.readAsDataURL(file);
+        }
     });
 }
 
@@ -106,20 +153,54 @@ function toggleAudio() {
 }
 
 // Send a message
-function sendMessage() {
-    const message = messageInput.value.trim();
-    if (message && currentRoomId) {
-        socket.emit('send-message', { roomId: currentRoomId, message });
-        addMessage(message, true);
+function sendMessage(type = 'text', content = null) {
+    if (!currentRoomId) return;
+
+    const messageText = type === 'text' ? messageInput.value.trim() : null;
+    if (type === 'text' && !messageText) return;
+
+    socket.emit('send-message', {
+        roomId: currentRoomId,
+        type,
+        content: content || messageText
+    });
+
+    displayMessage({
+        type,
+        content: content || messageText,
+        timestamp: Date.now(),
+        isLocal: true
+    });
+
+    if (type === 'text') {
         messageInput.value = '';
     }
 }
 
-// Add a message to the chat
-function addMessage(message, isSent) {
+// Display a message
+function displayMessage({ type, content, timestamp, isLocal }) {
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
-    messageDiv.textContent = message;
+    messageDiv.className = `message ${type}-message ${isLocal ? 'local' : 'remote'}`;
+
+    switch (type) {
+        case 'text':
+            messageDiv.textContent = content;
+            break;
+        case 'image':
+            const img = document.createElement('img');
+            img.src = content;
+            img.addEventListener('click', () => {
+                window.open(content, '_blank');
+            });
+            messageDiv.appendChild(img);
+            break;
+        case 'gif':
+            const gifImg = document.createElement('img');
+            gifImg.src = content;
+            messageDiv.appendChild(gifImg);
+            break;
+    }
+
     messagesDiv.appendChild(messageDiv);
     messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
@@ -182,15 +263,78 @@ socket.on('ice-candidate-received', async ({ candidate }) => {
     }
 });
 
-socket.on('message-received', ({ message }) => {
-    addMessage(message, false);
+socket.on('message-received', ({ type, content }) => {
+    displayMessage({
+        type,
+        content,
+        timestamp: Date.now(),
+        isLocal: false
+    });
 });
 
 socket.on('partner-left', () => {
     if (remoteVideo.srcObject) {
         remoteVideo.srcObject = null;
     }
-    addMessage('Your partner has disconnected. Click "Next" to find a new partner.', false);
+    displayMessage({
+        type: 'text',
+        content: 'Your partner has disconnected. Click "Next" to find a new partner.',
+        timestamp: Date.now(),
+        isLocal: false
+    });
+});
+
+socket.on('connection-status', updateConnectionStatus);
+
+// Connection Status
+function updateConnectionStatus(status) {
+    connectionStatus.className = 'connection-status ' + status.status;
+    connectionStatus.querySelector('span').textContent = status.message || status.status;
+}
+
+// GIF Picker
+async function searchGifs(query) {
+    try {
+        const response = await fetch(`/api/gifs${query ? '?q=' + encodeURIComponent(query) : ''}`);
+        const { results } = await response.json();
+        
+        gifResults.innerHTML = '';
+        results.forEach(gif => {
+            const img = document.createElement('img');
+            img.src = gif.media_formats.tinygif.url; // Preview size
+            img.className = 'gif-item';
+            img.addEventListener('click', () => {
+                sendMessage('gif', gif.media_formats.gif.url); // Full size for sending
+                gifPicker.style.display = 'none';
+            });
+            gifResults.appendChild(img);
+        });
+    } catch (error) {
+        console.error('Error fetching GIFs:', error);
+    }
+}
+
+// Utility function for debouncing
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// Click outside to close pickers
+document.addEventListener('click', (e) => {
+    if (!emojiPicker.contains(e.target) && !emojiBtn.contains(e.target)) {
+        emojiPicker.style.display = 'none';
+    }
+    if (!gifPicker.contains(e.target) && !gifBtn.contains(e.target)) {
+        gifPicker.style.display = 'none';
+    }
 });
 
 // Initialize the app

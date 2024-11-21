@@ -1,11 +1,20 @@
+require('dotenv').config();
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
 const io = require('socket.io')(http);
 const path = require('path');
 const os = require('os');
+const fetch = require('node-fetch');
+
+// Environment variables
+const TENOR_API_KEY = process.env.TENOR_API_KEY;
+if (!TENOR_API_KEY) {
+    console.error('Warning: TENOR_API_KEY not found in environment variables');
+}
 
 app.use(express.static('public'));
+app.use(express.json({ limit: '10mb' }));
 
 // Queue for waiting users
 const waitingUsers = {
@@ -16,8 +25,27 @@ const waitingUsers = {
 // Active rooms
 const activeRooms = new Map();
 
+// GIF proxy endpoint
+app.get('/api/gifs', async (req, res) => {
+    try {
+        const { q } = req.query;
+        const searchType = q ? 'search' : 'trending';
+        const url = `https://tenor.googleapis.com/v2/${searchType}?key=${TENOR_API_KEY}&client_key=mila_chat&limit=20${q ? '&q=' + encodeURIComponent(q) : ''}`;
+        
+        const response = await fetch(url);
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        console.error('Error fetching GIFs:', error);
+        res.status(500).json({ error: 'Failed to fetch GIFs' });
+    }
+});
+
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
+    
+    // Emit connection status
+    socket.emit('connection-status', { status: 'connected' });
 
     socket.on('find-partner', ({ isVideoChat }) => {
         const queueType = isVideoChat ? 'video' : 'text';
@@ -41,16 +69,23 @@ io.on('connection', (socket) => {
             // Notify users
             partner.emit('room-created', { roomId });
             socket.emit('room-joined', { roomId });
+
+            // Notify both users about successful connection
+            partner.emit('connection-status', { status: 'connected', message: 'Partner found!' });
+            socket.emit('connection-status', { status: 'connected', message: 'Partner found!' });
         } else {
             // Add to waiting queue
             waitingUsers[queueType].push(socket);
+            socket.emit('connection-status', { status: 'waiting', message: 'Looking for a partner...' });
         }
     });
 
     socket.on('leave-room', (roomId) => {
         leaveCurrentRoom(socket);
+        socket.emit('connection-status', { status: 'disconnected', message: 'Disconnected from partner' });
     });
 
+    // WebRTC signaling
     socket.on('offer', ({ roomId, offer }) => {
         socket.to(roomId).emit('offer-received', { offer });
     });
@@ -63,10 +98,17 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('ice-candidate-received', { candidate });
     });
 
-    socket.on('send-message', ({ roomId, message }) => {
-        socket.to(roomId).emit('message-received', { message });
+    // Chat messages
+    socket.on('send-message', ({ roomId, message, type, content }) => {
+        const messageData = {
+            type: type || 'text',
+            content: content || message,
+            timestamp: Date.now()
+        };
+        socket.to(roomId).emit('message-received', messageData);
     });
 
+    // Handle disconnection
     socket.on('disconnect', () => {
         console.log('User disconnected:', socket.id);
         leaveCurrentRoom(socket);
@@ -82,6 +124,10 @@ function leaveCurrentRoom(socket) {
     for (const [roomId, room] of activeRooms.entries()) {
         if (room.users.includes(socket.id)) {
             socket.to(roomId).emit('partner-left');
+            socket.to(roomId).emit('connection-status', { 
+                status: 'disconnected', 
+                message: 'Partner disconnected' 
+            });
             socket.leave(roomId);
             activeRooms.delete(roomId);
             break;

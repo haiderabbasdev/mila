@@ -2,7 +2,12 @@ require('dotenv').config();
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+const io = require('socket.io')(http, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 const path = require('path');
 const os = require('os');
 const fetch = require('node-fetch');
@@ -15,6 +20,17 @@ if (!TENOR_API_KEY) {
 
 app.use(express.static('public'));
 app.use(express.json({ limit: '10mb' }));
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+});
+
+// Basic health check endpoint
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
 
 // Queue for waiting users
 const waitingUsers = {
@@ -149,8 +165,11 @@ for (const interfaceName in networkInterfaces) {
 }
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
+http.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at:`);
     console.log(`- Local:   http://localhost:${PORT}`);
     console.log(`- Network: http://${localIP}:${PORT}`);
+    console.log(`- Environment: ${process.env.NODE_ENV || 'development'}`);
+}).on('error', (err) => {
+    console.error('Server error:', err);
 });

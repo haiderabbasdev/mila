@@ -6,7 +6,6 @@
     <title>ΜΙΛΑ - Connect Instantly</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/emoji-mart@latest/css/emoji-mart.css">
 </head>
 <body>
     <div class="container">
@@ -75,9 +74,7 @@
         </div>
 
         <!-- Emoji Picker Container -->
-        <div class="emoji-picker" id="emojiPicker" style="display: none;">
-            <div id="emojiContainer"></div>
-        </div>
+        <div class="emoji-picker" id="emojiPicker" style="display: none;"></div>
 
         <!-- GIF Picker Container -->
         <div class="gif-picker" id="gifPicker" style="display: none;">
@@ -89,7 +86,8 @@
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/emoji-mart@latest/dist/browser.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emoji-mart/data"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emoji-mart/react"></script>
     <script src="app.js"></script>
 </body>
 </html>

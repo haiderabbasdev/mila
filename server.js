@@ -11,6 +11,21 @@ const io = require('socket.io')(http, {
 const path = require('path');
 const os = require('os');
 const fetch = require('node-fetch');
+const admin = require('firebase-admin');
+const firebaseConfig = require('./firebase-config');
+
+// Initialize Firebase Admin
+admin.initializeApp({
+    credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+    }),
+    databaseURL: process.env.FIREBASE_DATABASE_URL
+});
+
+const db = admin.database();
+const auth = admin.auth();
 
 // Environment variables
 const TENOR_API_KEY = process.env.TENOR_API_KEY;
@@ -27,19 +42,60 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Internal Server Error' });
 });
 
+// Authentication middleware
+const authenticateToken = async (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
+    try {
+        const decodedToken = await auth.verifyIdToken(token);
+        req.user = decodedToken;
+        next();
+    } catch (error) {
+        return res.status(403).json({ error: 'Invalid token' });
+    }
+};
+
+// User routes
+app.post('/api/users/profile', authenticateToken, async (req, res) => {
+    try {
+        const { displayName, photoURL } = req.body;
+        const uid = req.user.uid;
+        
+        await db.ref(`users/${uid}`).update({
+            displayName,
+            photoURL,
+            lastSeen: admin.database.ServerValue.TIMESTAMP
+        });
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error updating profile:', error);
+        res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
+// Chat history routes
+app.get('/api/chats/:roomId', authenticateToken, async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const snapshot = await db.ref(`chats/${roomId}`).limitToLast(50).once('value');
+        const messages = snapshot.val() || {};
+        res.json(Object.values(messages));
+    } catch (error) {
+        console.error('Error fetching chat history:', error);
+        res.status(500).json({ error: 'Failed to fetch chat history' });
+    }
+});
+
 // Basic health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
-
-// Queue for waiting users
-const waitingUsers = {
-    text: [],
-    video: []
-};
-
-// Active rooms
-const activeRooms = new Map();
 
 // GIF proxy endpoint
 app.get('/api/gifs', async (req, res) => {
@@ -57,11 +113,34 @@ app.get('/api/gifs', async (req, res) => {
     }
 });
 
+// Queue for waiting users
+const waitingUsers = {
+    text: [],
+    video: []
+};
+
+// Active rooms
+const activeRooms = new Map();
+
+// Socket.IO connection handling
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
     
     // Emit connection status
     socket.emit('connection-status', { status: 'connected' });
+
+    socket.on('authenticate', async (token) => {
+        try {
+            const decodedToken = await auth.verifyIdToken(token);
+            socket.userId = decodedToken.uid;
+            socket.emit('authenticated');
+            
+            // Update user status
+            await db.ref(`users/${decodedToken.uid}/status`).set('online');
+        } catch (error) {
+            socket.emit('authentication_error', { error: 'Invalid token' });
+        }
+    });
 
     socket.on('find-partner', ({ isVideoChat }) => {
         const queueType = isVideoChat ? 'video' : 'text';
@@ -115,18 +194,31 @@ io.on('connection', (socket) => {
     });
 
     // Chat messages
-    socket.on('send-message', ({ roomId, message, type, content }) => {
+    socket.on('send-message', async ({ roomId, message, type, content }) => {
+        if (!socket.userId) {
+            socket.emit('error', { message: 'Not authenticated' });
+            return;
+        }
+
         const messageData = {
             type: type || 'text',
             content: content || message,
-            timestamp: Date.now()
+            timestamp: admin.database.ServerValue.TIMESTAMP,
+            senderId: socket.userId
         };
+
+        // Save message to Firebase
+        await db.ref(`chats/${roomId}`).push(messageData);
+
         socket.to(roomId).emit('message-received', messageData);
     });
 
     // Handle disconnection
-    socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
+    socket.on('disconnect', async () => {
+        if (socket.userId) {
+            await db.ref(`users/${socket.userId}/status`).set('offline');
+            await db.ref(`users/${socket.userId}/lastSeen`).set(admin.database.ServerValue.TIMESTAMP);
+        }
         leaveCurrentRoom(socket);
         
         // Remove from waiting queues

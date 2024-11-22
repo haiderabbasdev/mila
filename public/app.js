@@ -52,37 +52,47 @@ function setupEventListeners() {
     toggleVideoBtn.addEventListener('click', toggleVideo);
     toggleAudioBtn.addEventListener('click', toggleAudio);
     nextBtn.addEventListener('click', findNewPartner);
-    sendMessageBtn.addEventListener('click', sendMessage);
+    sendMessageBtn.addEventListener('click', () => sendMessage());
     messageInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
-    emojiBtn.addEventListener('click', () => {
+
+    // Emoji picker
+    emojiBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         if (!picker) {
             picker = new EmojiMart.Picker({
+                data: emojiMartData,
                 onEmojiSelect: (emoji) => {
                     messageInput.value += emoji.native;
                     emojiPicker.style.display = 'none';
                 },
-                theme: 'dark',
-                set: 'twitter'
+                theme: 'dark'
             });
+            emojiPicker.innerHTML = '';
             emojiPicker.appendChild(picker);
         }
         emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'block' : 'none';
     });
-    gifBtn.addEventListener('click', () => {
+
+    // GIF picker
+    gifBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         gifPicker.style.display = gifPicker.style.display === 'none' ? 'block' : 'none';
         if (gifPicker.style.display === 'block') {
             searchGifs('');
         }
     });
+
     gifSearchInput.addEventListener('input', debounce((e) => {
         searchGifs(e.target.value);
     }, 500));
+
+    // Image upload
     imageUpload.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (file) {
-            if (file.size > 5 * 1024 * 1024) { // 5MB limit
+            if (file.size > 5 * 1024 * 1024) {
                 alert('Image size must be less than 5MB');
                 return;
             }
@@ -296,21 +306,30 @@ function updateConnectionStatus(status) {
 async function searchGifs(query) {
     try {
         const response = await fetch(`/api/gifs${query ? '?q=' + encodeURIComponent(query) : ''}`);
-        const { results } = await response.json();
+        if (!response.ok) {
+            throw new Error('Failed to fetch GIFs');
+        }
         
+        const data = await response.json();
+        if (!data.results) {
+            throw new Error('Invalid GIF data format');
+        }
+
         gifResults.innerHTML = '';
-        results.forEach(gif => {
+        data.results.forEach(gif => {
             const img = document.createElement('img');
-            img.src = gif.media_formats.tinygif.url; // Preview size
+            img.src = gif.media_formats.tinygif.url;
             img.className = 'gif-item';
+            img.loading = 'lazy';
             img.addEventListener('click', () => {
-                sendMessage('gif', gif.media_formats.gif.url); // Full size for sending
+                sendMessage('gif', gif.media_formats.gif.url);
                 gifPicker.style.display = 'none';
             });
             gifResults.appendChild(img);
         });
     } catch (error) {
         console.error('Error fetching GIFs:', error);
+        gifResults.innerHTML = '<p class="error-message">Failed to load GIFs. Please try again.</p>';
     }
 }
 

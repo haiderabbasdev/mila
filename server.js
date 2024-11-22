@@ -11,21 +11,27 @@ const io = require('socket.io')(http, {
 const path = require('path');
 const os = require('os');
 const fetch = require('node-fetch');
-const admin = require('firebase-admin');
-const firebaseConfig = require('./firebase-config');
 
-// Initialize Firebase Admin
-admin.initializeApp({
-    credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
-    }),
-    databaseURL: process.env.FIREBASE_DATABASE_URL
-});
-
-const db = admin.database();
-const auth = admin.auth();
+// Initialize Firebase Admin (if configured)
+let db, auth;
+try {
+    if (process.env.FIREBASE_PROJECT_ID) {
+        const admin = require('firebase-admin');
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
+            }),
+            databaseURL: process.env.FIREBASE_DATABASE_URL
+        });
+        db = admin.database();
+        auth = admin.auth();
+        console.log('Firebase initialized successfully');
+    }
+} catch (error) {
+    console.log('Firebase initialization skipped:', error.message);
+}
 
 // Environment variables
 const TENOR_API_KEY = process.env.TENOR_API_KEY;
@@ -44,6 +50,11 @@ app.use((err, req, res, next) => {
 
 // Authentication middleware
 const authenticateToken = async (req, res, next) => {
+    if (!auth) {
+        // Skip authentication if Firebase is not configured
+        return next();
+    }
+    
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
@@ -66,11 +77,13 @@ app.post('/api/users/profile', authenticateToken, async (req, res) => {
         const { displayName, photoURL } = req.body;
         const uid = req.user.uid;
         
-        await db.ref(`users/${uid}`).update({
-            displayName,
-            photoURL,
-            lastSeen: admin.database.ServerValue.TIMESTAMP
-        });
+        if (db) {
+            await db.ref(`users/${uid}`).update({
+                displayName,
+                photoURL,
+                lastSeen: db.ServerValue.TIMESTAMP
+            });
+        }
         
         res.json({ success: true });
     } catch (error) {
@@ -83,9 +96,13 @@ app.post('/api/users/profile', authenticateToken, async (req, res) => {
 app.get('/api/chats/:roomId', authenticateToken, async (req, res) => {
     try {
         const { roomId } = req.params;
-        const snapshot = await db.ref(`chats/${roomId}`).limitToLast(50).once('value');
-        const messages = snapshot.val() || {};
-        res.json(Object.values(messages));
+        if (db) {
+            const snapshot = await db.ref(`chats/${roomId}`).limitToLast(50).once('value');
+            const messages = snapshot.val() || {};
+            res.json(Object.values(messages));
+        } else {
+            res.json([]);
+        }
     } catch (error) {
         console.error('Error fetching chat history:', error);
         res.status(500).json({ error: 'Failed to fetch chat history' });
@@ -131,12 +148,18 @@ io.on('connection', (socket) => {
 
     socket.on('authenticate', async (token) => {
         try {
-            const decodedToken = await auth.verifyIdToken(token);
-            socket.userId = decodedToken.uid;
-            socket.emit('authenticated');
-            
-            // Update user status
-            await db.ref(`users/${decodedToken.uid}/status`).set('online');
+            if (auth) {
+                const decodedToken = await auth.verifyIdToken(token);
+                socket.userId = decodedToken.uid;
+                socket.emit('authenticated');
+                
+                // Update user status
+                if (db) {
+                    await db.ref(`users/${decodedToken.uid}/status`).set('online');
+                }
+            } else {
+                socket.emit('authenticated');
+            }
         } catch (error) {
             socket.emit('authentication_error', { error: 'Invalid token' });
         }
@@ -203,21 +226,23 @@ io.on('connection', (socket) => {
         const messageData = {
             type: type || 'text',
             content: content || message,
-            timestamp: admin.database.ServerValue.TIMESTAMP,
+            timestamp: db ? db.ServerValue.TIMESTAMP : Date.now(),
             senderId: socket.userId
         };
 
         // Save message to Firebase
-        await db.ref(`chats/${roomId}`).push(messageData);
+        if (db) {
+            await db.ref(`chats/${roomId}`).push(messageData);
+        }
 
         socket.to(roomId).emit('message-received', messageData);
     });
 
     // Handle disconnection
     socket.on('disconnect', async () => {
-        if (socket.userId) {
+        if (socket.userId && db) {
             await db.ref(`users/${socket.userId}/status`).set('offline');
-            await db.ref(`users/${socket.userId}/lastSeen`).set(admin.database.ServerValue.TIMESTAMP);
+            await db.ref(`users/${socket.userId}/lastSeen`).set(db.ServerValue.TIMESTAMP);
         }
         leaveCurrentRoom(socket);
         
